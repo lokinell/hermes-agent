@@ -62,6 +62,8 @@ from gateway.platforms.base import (
     cache_audio_from_bytes,
     cache_document_from_bytes,
     cache_image_from_bytes,
+    proxy_kwargs_for_aiohttp,
+    resolve_proxy_url,
 )
 from hermes_constants import get_hermes_home
 from utils import atomic_json_write
@@ -935,7 +937,9 @@ async def qr_login(
     if not AIOHTTP_AVAILABLE:
         raise RuntimeError("aiohttp is required for Weixin QR login")
 
-    async with aiohttp.ClientSession(trust_env=True) as session:
+    _proxy = resolve_proxy_url(platform_env_var="WEIXIN_PROXY")
+    _sess_kw, _ = proxy_kwargs_for_aiohttp(_proxy)
+    async with aiohttp.ClientSession(**_sess_kw) as session:
         try:
             qr_resp = await _api_get(
                 session,
@@ -1134,7 +1138,9 @@ class WeixinAdapter(BasePlatformAdapter):
         except Exception as exc:
             logger.debug("[%s] Token lock unavailable (non-fatal): %s", self.name, exc)
 
-        self._session = aiohttp.ClientSession(trust_env=True)
+        _proxy = resolve_proxy_url(platform_env_var="WEIXIN_PROXY")
+        _sess_kw, _ = proxy_kwargs_for_aiohttp(_proxy)
+        self._session = aiohttp.ClientSession(**_sess_kw)
         self._token_store.restore(self._account_id)
         self._poll_task = asyncio.create_task(self._poll_loop(), name="weixin-poll")
         self._mark_connected()
@@ -1784,7 +1790,9 @@ async def send_weixin_direct(
     token_store.restore(account_id)
     context_token = token_store.get(account_id, chat_id)
 
-    async with aiohttp.ClientSession(trust_env=True) as session:
+    _proxy = resolve_proxy_url(platform_env_var="WEIXIN_PROXY")
+    _sess_kw, _ = proxy_kwargs_for_aiohttp(_proxy)
+    async with aiohttp.ClientSession(**_sess_kw) as session:
         adapter = WeixinAdapter(
             PlatformConfig(
                 enabled=True,

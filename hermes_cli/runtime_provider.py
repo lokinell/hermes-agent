@@ -195,11 +195,14 @@ def _resolve_runtime_from_pool_entry(
     if api_mode == "anthropic_messages" and provider in ("opencode-zen", "opencode-go"):
         base_url = re.sub(r"/v1/?$", "", base_url)
 
+    proxy = (model_cfg.get("proxy") or "").strip() or None
+
     return {
         "provider": provider,
         "api_mode": api_mode,
         "base_url": base_url,
         "api_key": api_key,
+        "proxy": proxy,
         "source": getattr(entry, "source", "pool"),
         "credential_pool": pool,
         "requested_provider": requested_provider,

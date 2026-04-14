@@ -360,8 +360,13 @@ class TestBlockingApprovalE2E:
 
         session_key = "e2e-test"
         notified = []
+        notified_event = threading.Event()
 
-        register_gateway_notify(session_key, lambda d: notified.append(d))
+        def _on_notify(d):
+            notified.append(d)
+            notified_event.set()
+
+        register_gateway_notify(session_key, _on_notify)
 
         result_holder = [None]
 
@@ -385,10 +390,7 @@ class TestBlockingApprovalE2E:
         t = threading.Thread(target=agent_thread)
         t.start()
 
-        for _ in range(50):
-            if notified:
-                break
-            time.sleep(0.05)
+        notified_event.wait(timeout=10)
 
         assert len(notified) == 1
         assert "rm -rf /important" in notified[0]["command"]
@@ -409,7 +411,13 @@ class TestBlockingApprovalE2E:
 
         session_key = "e2e-deny"
         notified = []
-        register_gateway_notify(session_key, lambda d: notified.append(d))
+        notified_event = threading.Event()
+
+        def _on_notify(d):
+            notified.append(d)
+            notified_event.set()
+
+        register_gateway_notify(session_key, _on_notify)
 
         result_holder = [None]
 
@@ -432,10 +440,7 @@ class TestBlockingApprovalE2E:
 
         t = threading.Thread(target=agent_thread)
         t.start()
-        for _ in range(50):
-            if notified:
-                break
-            time.sleep(0.05)
+        notified_event.wait(timeout=10)
 
         resolve_gateway_approval(session_key, "deny")
         t.join(timeout=5)

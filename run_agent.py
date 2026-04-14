@@ -604,6 +604,7 @@ class AIAgent:
         checkpoint_max_snapshots: int = 50,
         pass_session_id: bool = False,
         persist_session: bool = True,
+        proxy: str = None,
     ):
         """
         Initialize the AI Agent.
@@ -898,6 +899,8 @@ class AIAgent:
                 # Explicit credentials from CLI/gateway — construct directly.
                 # The runtime provider resolver already handled auth for us.
                 client_kwargs = {"api_key": api_key, "base_url": base_url}
+                if proxy:
+                    client_kwargs["proxy"] = proxy
                 if self.provider == "copilot-acp":
                     client_kwargs["command"] = self.acp_command
                     client_kwargs["args"] = self.acp_args
@@ -4106,10 +4109,12 @@ class AIAgent:
         return False
 
     def _create_openai_client(self, client_kwargs: dict, *, reason: str, shared: bool) -> Any:
-        if self.provider == "copilot-acp" or str(client_kwargs.get("base_url", "")).startswith("acp://copilot"):
+        kw = dict(client_kwargs)
+        proxy_url = kw.pop("proxy", None)
+        if self.provider == "copilot-acp" or str(kw.get("base_url", "")).startswith("acp://copilot"):
             from agent.copilot_acp_client import CopilotACPClient
 
-            client = CopilotACPClient(**client_kwargs)
+            client = CopilotACPClient(**kw)
             logger.info(
                 "Copilot ACP client created (%s, shared=%s) %s",
                 reason,
@@ -4117,7 +4122,10 @@ class AIAgent:
                 self._client_log_context(),
             )
             return client
-        client = OpenAI(**client_kwargs)
+        if proxy_url:
+            import httpx
+            kw["http_client"] = httpx.Client(proxy=proxy_url, follow_redirects=True)
+        client = OpenAI(**kw)
         logger.info(
             "OpenAI client created (%s, shared=%s) %s",
             reason,

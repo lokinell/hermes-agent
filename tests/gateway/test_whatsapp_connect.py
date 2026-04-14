@@ -83,11 +83,21 @@ def _mock_aiohttp(status=200, json_data=None, json_side_effect=None):
 
 
 def _connect_patches(mock_proc, mock_fh, mock_client_cls=None):
-    """Return a dict of common patches needed to reach the health-check loop."""
-    patches = {
-        "gateway.platforms.whatsapp.check_whatsapp_requirements": True,
-        "gateway.platforms.whatsapp.asyncio.create_task": MagicMock(),
-    }
+    """Return a list of common patches needed to reach the health-check loop.
+
+    Patch index layout:
+      0  check_whatsapp_requirements
+      1  Path.exists
+      2  Path.mkdir
+      3  subprocess.run
+      4  subprocess.Popen
+      5  builtins.open
+      6  asyncio.sleep
+      7  asyncio.create_task
+      8  aiohttp.ClientSession  (only when mock_client_cls is given)
+      8  _acquire_platform_lock (without mock_client_cls)
+      9  _acquire_platform_lock (with mock_client_cls)
+    """
     base = [
         patch("gateway.platforms.whatsapp.check_whatsapp_requirements", return_value=True),
         patch.object(Path, "exists", return_value=True),
@@ -100,6 +110,12 @@ def _connect_patches(mock_proc, mock_fh, mock_client_cls=None):
     ]
     if mock_client_cls is not None:
         base.append(patch("aiohttp.ClientSession", mock_client_cls))
+    # Always mock the platform lock so tests are hermetic regardless of whether
+    # a real gateway process happens to hold the same lock key on this machine.
+    base.append(patch(
+        "gateway.platforms.base.BasePlatformAdapter._acquire_platform_lock",
+        return_value=True,
+    ))
     return base
 
 
@@ -173,7 +189,7 @@ class TestDataInitialized:
         patches = _connect_patches(mock_proc, mock_fh, mock_client_cls)
 
         with patches[0], patches[1], patches[2], patches[3], patches[4], \
-             patches[5], patches[6], patches[7], patches[8], \
+             patches[5], patches[6], patches[7], patches[8], patches[9], \
              patch.object(type(adapter), "_poll_messages", return_value=MagicMock()):
             # Must NOT raise NameError
             result = await adapter.connect()
@@ -203,7 +219,7 @@ class TestFileHandleClosedOnError:
         patches = _connect_patches(mock_proc, mock_fh)
 
         with patches[0], patches[1], patches[2], patches[3], patches[4], \
-             patches[5], patches[6], patches[7]:
+             patches[5], patches[6], patches[7], patches[8]:
             result = await adapter.connect()
 
         assert result is False
@@ -273,7 +289,7 @@ class TestBridgeRuntimeFailure:
         patches = _connect_patches(mock_proc, mock_fh, mock_client_cls)
 
         with patches[0], patches[1], patches[2], patches[3], patches[4], \
-             patches[5], patches[6], patches[7], patches[8]:
+             patches[5], patches[6], patches[7], patches[8], patches[9]:
             result = await adapter.connect()
 
         assert result is False
@@ -304,7 +320,7 @@ class TestBridgeRuntimeFailure:
         patches = _connect_patches(mock_proc, mock_fh, mock_client_cls)
 
         with patches[0], patches[1], patches[2], patches[3], patches[4], \
-             patches[5], patches[6], patches[7], patches[8]:
+             patches[5], patches[6], patches[7], patches[8], patches[9]:
             result = await adapter.connect()
 
         assert result is False
@@ -323,7 +339,8 @@ class TestBridgeRuntimeFailure:
              patch.object(Path, "mkdir", return_value=None), \
              patch("subprocess.run", return_value=MagicMock(returncode=0)), \
              patch("subprocess.Popen", side_effect=OSError("spawn failed")), \
-             patch("builtins.open", return_value=mock_fh):
+             patch("builtins.open", return_value=mock_fh), \
+             patch("gateway.platforms.base.BasePlatformAdapter._acquire_platform_lock", return_value=True):
             result = await adapter.connect()
 
         assert result is False
