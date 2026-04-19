@@ -4432,6 +4432,17 @@ class AIAgent:
                     _os.environ.get("HTTP_PROXY") or
                     _os.environ.get("http_proxy")
                 )
+                if _proxy_url:
+                    _no_proxy = _os.environ.get("NO_PROXY") or _os.environ.get("no_proxy") or ""
+                    _target = str(client_kwargs.get("base_url", ""))
+                    try:
+                        from urllib.parse import urlparse as _urlparse
+                        _host = _urlparse(_target).hostname or ""
+                        if any(_host == e.strip() or _host.endswith("." + e.strip())
+                               for e in _no_proxy.split(",") if e.strip()):
+                            _proxy_url = None
+                    except Exception:
+                        pass
                 client_kwargs["http_client"] = _httpx.Client(
                     transport=_httpx.HTTPTransport(socket_options=_sock_opts, proxy=_proxy_url),
                 )
