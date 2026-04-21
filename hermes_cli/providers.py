@@ -137,6 +137,11 @@ HERMES_OVERLAYS: Dict[str, HermesOverlay] = {
         base_url_override="https://api.x.ai/v1",
         base_url_env_var="XAI_BASE_URL",
     ),
+    "nvidia": HermesOverlay(
+        transport="openai_chat",
+        base_url_override="https://integrate.api.nvidia.com/v1",
+        base_url_env_var="NVIDIA_BASE_URL",
+    ),
     "xiaomi": HermesOverlay(
         transport="openai_chat",
         base_url_env_var="XIAOMI_BASE_URL",
@@ -190,6 +195,12 @@ ALIASES: Dict[str, str] = {
     "x-ai": "xai",
     "x.ai": "xai",
     "grok": "xai",
+
+    # nvidia
+    "nim": "nvidia",
+    "nvidia-nim": "nvidia",
+    "build-nvidia": "nvidia",
+    "nemotron": "nvidia",
 
     # kimi-for-coding (models.dev ID)
     "kimi": "kimi-for-coding",
@@ -311,12 +322,16 @@ def normalize_provider(name: str) -> str:
 
 
 def get_provider(name: str) -> Optional[ProviderDef]:
-    """Look up a provider by id or alias, merging all data sources.
+    """Look up a built-in provider by id or alias.
 
     Resolution order:
       1. Hermes overlays (for providers not in models.dev: nous, openai-codex, etc.)
       2. models.dev catalog + Hermes overlay
-      3. User-defined providers from config (TODO: Phase 4)
+
+    User-defined providers from config.yaml (``providers:`` / ``custom_providers:``)
+    are resolved by :func:`resolve_provider_full`, which layers ``resolve_user_provider``
+    and ``resolve_custom_provider`` on top of this function. Callers that need
+    user-config support should use ``resolve_provider_full`` instead.
 
     Returns a fully-resolved ProviderDef or None.
     """

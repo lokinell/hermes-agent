@@ -16,6 +16,12 @@ from difflib import get_close_matches
 from pathlib import Path
 from typing import Any, NamedTuple, Optional
 
+from hermes_cli import __version__ as _HERMES_VERSION
+
+# Identify ourselves so endpoints fronted by Cloudflare's Browser Integrity
+# Check (error 1010) don't reject the default ``Python-urllib/*`` signature.
+_HERMES_USER_AGENT = f"hermes-cli/{_HERMES_VERSION}"
+
 COPILOT_BASE_URL = "https://api.githubcopilot.com"
 COPILOT_MODELS_URL = f"{COPILOT_BASE_URL}/models"
 COPILOT_EDITOR_VERSION = "vscode/1.104.1"
@@ -26,7 +32,8 @@ COPILOT_REASONING_EFFORTS_O_SERIES = ["low", "medium", "high"]
 # Fallback OpenRouter snapshot used when the live catalog is unavailable.
 # (model_id, display description shown in menus)
 OPENROUTER_MODELS: list[tuple[str, str]] = [
-    ("anthropic/claude-opus-4.7",       "recommended"),
+    ("moonshotai/kimi-k2.6",            "recommended"),
+    ("anthropic/claude-opus-4.7",       ""),
     ("anthropic/claude-opus-4.6",       ""),
     ("anthropic/claude-sonnet-4.6",     ""),
     ("qwen/qwen3.6-plus",               ""),
@@ -49,7 +56,6 @@ OPENROUTER_MODELS: list[tuple[str, str]] = [
     ("z-ai/glm-5.1",                    ""),
     ("z-ai/glm-5v-turbo",               ""),
     ("z-ai/glm-5-turbo",                ""),
-    ("moonshotai/kimi-k2.5",            ""),
     ("x-ai/grok-4.20",                  ""),
     ("nvidia/nemotron-3-super-120b-a12b",      ""),
     ("nvidia/nemotron-3-super-120b-a12b:free", "free"),
@@ -75,7 +81,9 @@ def _codex_curated_models() -> list[str]:
 
 _PROVIDER_MODELS: dict[str, list[str]] = {
     "nous": [
+        "moonshotai/kimi-k2.6",
         "xiaomi/mimo-v2-pro",
+        "anthropic/claude-opus-4.7",
         "anthropic/claude-opus-4.6",
         "anthropic/claude-sonnet-4.6",
         "anthropic/claude-sonnet-4.5",
@@ -95,7 +103,6 @@ _PROVIDER_MODELS: dict[str, list[str]] = {
         "z-ai/glm-5.1",
         "z-ai/glm-5v-turbo",
         "z-ai/glm-5-turbo",
-        "moonshotai/kimi-k2.5",
         "x-ai/grok-4.20-beta",
         "nvidia/nemotron-3-super-120b-a12b",
         "nvidia/nemotron-3-super-120b-a12b:free",
@@ -127,19 +134,14 @@ _PROVIDER_MODELS: dict[str, list[str]] = {
     ],
     "gemini": [
         "gemini-3.1-pro-preview",
+        "gemini-3-pro-preview",
         "gemini-3-flash-preview",
         "gemini-3.1-flash-lite-preview",
-        "gemini-2.5-pro",
-        "gemini-2.5-flash",
-        "gemini-2.5-flash-lite",
-        # Gemma open models (also served via AI Studio)
-        "gemma-4-31b-it",
-        "gemma-4-26b-it",
     ],
     "google-gemini-cli": [
-        "gemini-2.5-pro",
-        "gemini-2.5-flash",
-        "gemini-2.5-flash-lite",
+        "gemini-3.1-pro-preview",
+        "gemini-3-pro-preview",
+        "gemini-3-flash-preview",
     ],
     "zai": [
         "glm-5.1",
@@ -154,21 +156,38 @@ _PROVIDER_MODELS: dict[str, list[str]] = {
         "grok-4.20-reasoning",
         "grok-4-1-fast-reasoning",
     ],
+    "nvidia": [
+        # NVIDIA flagship reasoning models
+        "nvidia/nemotron-3-super-120b-a12b",
+        "nvidia/nemotron-3-nano-30b-a3b",
+        "nvidia/llama-3.3-nemotron-super-49b-v1.5",
+        # Third-party agentic models hosted on build.nvidia.com
+        # (map to OpenRouter defaults — users get familiar picks on NIM)
+        "qwen/qwen3.5-397b-a17b",
+        "deepseek-ai/deepseek-v3.2",
+        "moonshotai/kimi-k2.6",
+        "minimaxai/minimax-m2.5",
+        "z-ai/glm5",
+        "openai/gpt-oss-120b",
+    ],
     "kimi-coding": [
-        "kimi-for-coding",
+        "kimi-k2.6",
         "kimi-k2.5",
+        "kimi-for-coding",
         "kimi-k2-thinking",
         "kimi-k2-thinking-turbo",
         "kimi-k2-turbo-preview",
         "kimi-k2-0905-preview",
     ],
     "kimi-coding-cn": [
+        "kimi-k2.6",
         "kimi-k2.5",
         "kimi-k2-thinking",
         "kimi-k2-turbo-preview",
         "kimi-k2-0905-preview",
     ],
     "moonshot": [
+        "kimi-k2.6",
         "kimi-k2.5",
         "kimi-k2-thinking",
         "kimi-k2-turbo-preview",
@@ -211,10 +230,10 @@ _PROVIDER_MODELS: dict[str, list[str]] = {
         "trinity-mini",
     ],
     "opencode-zen": [
+        "kimi-k2.5",
         "gpt-5.4-pro",
         "gpt-5.4",
         "gpt-5.3-codex",
-        "gpt-5.3-codex-spark",
         "gpt-5.2",
         "gpt-5.2-codex",
         "gpt-5.1",
@@ -242,16 +261,15 @@ _PROVIDER_MODELS: dict[str, list[str]] = {
         "glm-5",
         "glm-4.7",
         "glm-4.6",
-        "kimi-k2.5",
         "kimi-k2-thinking",
         "kimi-k2",
         "qwen3-coder",
         "big-pickle",
     ],
     "opencode-go": [
+        "kimi-k2.5",
         "glm-5.1",
         "glm-5",
-        "kimi-k2.5",
         "mimo-v2-pro",
         "mimo-v2-omni",
         "minimax-m2.7",
@@ -284,25 +302,26 @@ _PROVIDER_MODELS: dict[str, list[str]] = {
     # to https://dashscope-intl.aliyuncs.com/compatible-mode/v1 (OpenAI-compat)
     # or https://dashscope-intl.aliyuncs.com/apps/anthropic (Anthropic-compat).
     "alibaba": [
+        "kimi-k2.5",
         "qwen3.5-plus",
         "qwen3-coder-plus",
         "qwen3-coder-next",
         # Third-party models available on coding-intl
         "glm-5",
         "glm-4.7",
-        "kimi-k2.5",
         "MiniMax-M2.5",
     ],
     # Curated HF model list — only agentic models that map to OpenRouter defaults.
     "huggingface": [
+        "moonshotai/Kimi-K2.5",
         "Qwen/Qwen3.5-397B-A17B",
         "Qwen/Qwen3.5-35B-A3B",
         "deepseek-ai/DeepSeek-V3.2",
-        "moonshotai/Kimi-K2.5",
         "MiniMaxAI/MiniMax-M2.5",
         "zai-org/GLM-5",
         "XiaomiMiMo/MiMo-V2-Flash",
         "moonshotai/Kimi-K2-Thinking",
+        "moonshotai/Kimi-K2.6",
     ],
     # AWS Bedrock — static fallback list used when dynamic discovery is
     # unavailable (no boto3, no credentials, or API error).  The agent
@@ -535,11 +554,12 @@ CANONICAL_PROVIDERS: list[ProviderEntry] = [
     ProviderEntry("anthropic",      "Anthropic",                "Anthropic (Claude models — API key or Claude Code)"),
     ProviderEntry("openai-codex",   "OpenAI Codex",             "OpenAI Codex"),
     ProviderEntry("xiaomi",         "Xiaomi MiMo",              "Xiaomi MiMo (MiMo-V2 models — pro, omni, flash)"),
+    ProviderEntry("nvidia",         "NVIDIA NIM",               "NVIDIA NIM (Nemotron models — build.nvidia.com or local NIM)"),
     ProviderEntry("qwen-oauth",     "Qwen OAuth (Portal)",      "Qwen OAuth (reuses local Qwen CLI login)"),
     ProviderEntry("copilot",        "GitHub Copilot",           "GitHub Copilot (uses GITHUB_TOKEN or gh auth token)"),
     ProviderEntry("copilot-acp",    "GitHub Copilot ACP",       "GitHub Copilot ACP (spawns `copilot --acp --stdio`)"),
     ProviderEntry("huggingface",    "Hugging Face",             "Hugging Face Inference Providers (20+ open models)"),
-    ProviderEntry("gemini",         "Google AI Studio",         "Google AI Studio (Gemini models — OpenAI-compatible endpoint)"),
+    ProviderEntry("gemini",         "Google AI Studio",         "Google AI Studio (Gemini models — native Gemini API)"),
     ProviderEntry("google-gemini-cli", "Google Gemini (OAuth)",   "Google Gemini via OAuth + Code Assist (free tier supported; no API key needed)"),
     ProviderEntry("deepseek",       "DeepSeek",                 "DeepSeek (DeepSeek-V3, R1, coder — direct API)"),
     ProviderEntry("xai",            "xAI",                      "xAI (Grok models — direct API)"),
@@ -617,6 +637,10 @@ _PROVIDER_ALIASES = {
     "grok": "xai",
     "x-ai": "xai",
     "x.ai": "xai",
+    "nim": "nvidia",
+    "nvidia-nim": "nvidia",
+    "build-nvidia": "nvidia",
+    "nemotron": "nvidia",
     "ollama": "custom",  # bare "ollama" = local; use "ollama-cloud" for cloud
     "ollama_cloud": "ollama-cloud",
 }
@@ -1487,6 +1511,19 @@ _COPILOT_MODEL_ALIASES = {
     "anthropic/claude-sonnet-4.6": "claude-sonnet-4.6",
     "anthropic/claude-sonnet-4.5": "claude-sonnet-4.5",
     "anthropic/claude-haiku-4.5": "claude-haiku-4.5",
+    # Dash-notation fallbacks: Hermes' default Claude IDs elsewhere use
+    # hyphens (anthropic native format), but Copilot's API only accepts
+    # dot-notation.  Accept both so users who configure copilot + a
+    # default hyphenated Claude model don't hit HTTP 400
+    # "model_not_supported".  See issue #6879.
+    "claude-opus-4-6": "claude-opus-4.6",
+    "claude-sonnet-4-6": "claude-sonnet-4.6",
+    "claude-sonnet-4-5": "claude-sonnet-4.5",
+    "claude-haiku-4-5": "claude-haiku-4.5",
+    "anthropic/claude-opus-4-6": "claude-opus-4.6",
+    "anthropic/claude-sonnet-4-6": "claude-sonnet-4.6",
+    "anthropic/claude-sonnet-4-5": "claude-sonnet-4.5",
+    "anthropic/claude-haiku-4-5": "claude-haiku-4.5",
 }
 
 
@@ -1741,7 +1778,7 @@ def probe_api_models(
         candidates.append((alternate_base, True))
 
     tried: list[str] = []
-    headers: dict[str, str] = {}
+    headers: dict[str, str] = {"User-Agent": _HERMES_USER_AGENT}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
     if normalized.startswith(COPILOT_BASE_URL):
@@ -2018,8 +2055,8 @@ def validate_requested_model(
                 )
 
             return {
-                "accepted": True,
-                "persist": True,
+                "accepted": False,
+                "persist": False,
                 "recognized": False,
                 "message": message,
             }
@@ -2032,8 +2069,8 @@ def validate_requested_model(
             message += f"\n  If this server expects `/v1`, try base URL: `{probe.get('suggested_base_url')}`"
 
         return {
-            "accepted": True,
-            "persist": True,
+            "accepted": False,
+            "persist": False,
             "recognized": False,
             "message": message,
         }
@@ -2067,13 +2104,57 @@ def validate_requested_model(
             if suggestions:
                 suggestion_text = "\n  Similar models: " + ", ".join(f"`{s}`" for s in suggestions)
             return {
+                "accepted": False,
+                "persist": False,
+                "recognized": False,
+                "message": (
+                    f"Model `{requested}` was not found in the OpenAI Codex model listing."
+                    f"{suggestion_text}"
+                ),
+            }
+
+    # MiniMax providers don't expose a /models endpoint — validate against
+    # the static catalog instead, similar to openai-codex.
+    if normalized in ("minimax", "minimax-cn"):
+        try:
+            catalog_models = provider_model_ids(normalized)
+        except Exception:
+            catalog_models = []
+        if catalog_models:
+            # Case-insensitive lookup (catalog uses mixed case like MiniMax-M2.7)
+            catalog_lower = {m.lower(): m for m in catalog_models}
+            if requested_for_lookup.lower() in catalog_lower:
+                return {
+                    "accepted": True,
+                    "persist": True,
+                    "recognized": True,
+                    "message": None,
+                }
+            # Auto-correct close matches (case-insensitive)
+            catalog_lower_list = list(catalog_lower.keys())
+            auto = get_close_matches(requested_for_lookup.lower(), catalog_lower_list, n=1, cutoff=0.9)
+            if auto:
+                corrected = catalog_lower[auto[0]]
+                return {
+                    "accepted": True,
+                    "persist": True,
+                    "recognized": True,
+                    "corrected_model": corrected,
+                    "message": f"Auto-corrected `{requested}` → `{corrected}`",
+                }
+            suggestions = get_close_matches(requested_for_lookup.lower(), catalog_lower_list, n=3, cutoff=0.5)
+            suggestion_text = ""
+            if suggestions:
+                suggestion_text = "\n  Similar models: " + ", ".join(f"`{catalog_lower[s]}`" for s in suggestions)
+            return {
                 "accepted": True,
                 "persist": True,
                 "recognized": False,
                 "message": (
-                    f"Note: `{requested}` was not found in the OpenAI Codex model listing. "
-                    f"It may still work if your account has access to it."
+                    f"Note: `{requested}` was not found in the MiniMax catalog."
                     f"{suggestion_text}"
+                    "\n  MiniMax does not expose a /models endpoint, so Hermes cannot verify the model name."
+                    "\n  The model may still work if it exists on the server."
                 ),
             }
 
@@ -2111,16 +2192,15 @@ def validate_requested_model(
             if suggestions:
                 suggestion_text = "\n  Similar models: " + ", ".join(f"`{s}`" for s in suggestions)
 
-            return {
-                "accepted": True,
-                "persist": True,
-                "recognized": False,
-                "message": (
-                    f"Note: `{requested}` was not found in this provider's model listing. "
-                    f"It may still work if your plan supports it."
-                    f"{suggestion_text}"
-                ),
-            }
+        return {
+            "accepted": False,
+            "persist": False,
+            "recognized": False,
+            "message": (
+                f"Model `{requested}` was not found in this provider's model listing."
+                f"{suggestion_text}"
+            ),
+        }
 
     # api_models is None — couldn't reach API.  Accept and persist,
     # but warn so typos don't silently break things.
@@ -2162,8 +2242,8 @@ def validate_requested_model(
 
     provider_label = _PROVIDER_LABELS.get(normalized, normalized)
     return {
-        "accepted": True,
-        "persist": True,
+        "accepted": False,
+        "persist": False,
         "recognized": False,
         "message": (
             f"Could not reach the {provider_label} API to validate `{requested}`. "
