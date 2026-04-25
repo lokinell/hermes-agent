@@ -73,9 +73,12 @@ def _chat_response_with_memory_call():
     """Simulated chat completions response with a memory tool call."""
     return SimpleNamespace(
         choices=[SimpleNamespace(
+            finish_reason="tool_calls",
             message=SimpleNamespace(
                 content=None,
                 tool_calls=[SimpleNamespace(
+                    id="call_mem_0",
+                    type="function",
                     function=SimpleNamespace(
                         name="memory",
                         arguments=json.dumps({
@@ -185,6 +188,30 @@ class TestFlushMemoriesUsesAuxiliaryClient:
 
         agent.client.chat.completions.create.assert_called_once()
 
+    def test_auxiliary_provider_failure_surfaces_warning_and_falls_back(self, monkeypatch):
+        """Provider/API failures from auxiliary flush must be visible.
+
+        Exhausted keys and rate limits are not always RuntimeError. They used
+        to fall into the broad outer handler and disappear into debug logs.
+        """
+        agent = _make_agent(monkeypatch, api_mode="chat_completions", provider="openrouter")
+        agent.client = MagicMock()
+        agent.client.chat.completions.create.return_value = _chat_response_with_memory_call()
+        events = []
+        agent.status_callback = lambda kind, text=None: events.append((kind, text))
+
+        with patch("agent.auxiliary_client.call_llm", side_effect=Exception("opencode-go key exhausted")), \
+             patch("tools.memory_tool.memory_tool", return_value="Saved."):
+            messages = [
+                {"role": "user", "content": "Hello"},
+                {"role": "assistant", "content": "Hi there"},
+                {"role": "user", "content": "Save this"},
+            ]
+            agent.flush_memories(messages)
+
+        agent.client.chat.completions.create.assert_called_once()
+        assert any(kind == "warn" and "Auxiliary memory flush failed" in text for kind, text in events)
+
     def test_flush_executes_memory_tool_calls(self, monkeypatch):
         """Verify that memory tool calls from the flush response actually get executed."""
         agent = _make_agent(monkeypatch, api_mode="chat_completions", provider="openrouter")
@@ -205,6 +232,31 @@ class TestFlushMemoriesUsesAuxiliaryClient:
         assert call_kwargs.kwargs["action"] == "add"
         assert call_kwargs.kwargs["target"] == "notes"
         assert "dark mode" in call_kwargs.kwargs["content"]
+
+    def test_flush_bridges_memory_write_metadata(self, monkeypatch):
+        """Flush memory writes notify external providers with flush provenance."""
+        agent = _make_agent(monkeypatch, api_mode="chat_completions", provider="openrouter")
+        agent._memory_manager = MagicMock()
+        agent.session_id = "sess-flush"
+        agent.platform = "cli"
+
+        mock_response = _chat_response_with_memory_call()
+
+        with patch("agent.auxiliary_client.call_llm", return_value=mock_response):
+            messages = [
+                {"role": "user", "content": "Hello"},
+                {"role": "assistant", "content": "Hi"},
+                {"role": "user", "content": "Note this"},
+            ]
+            with patch("tools.memory_tool.memory_tool", return_value="Saved."):
+                agent.flush_memories(messages)
+
+        agent._memory_manager.on_memory_write.assert_called_once()
+        call_kwargs = agent._memory_manager.on_memory_write.call_args
+        assert call_kwargs.args[:3] == ("add", "notes", "User prefers dark mode.")
+        assert call_kwargs.kwargs["metadata"]["write_origin"] == "memory_flush"
+        assert call_kwargs.kwargs["metadata"]["execution_context"] == "flush_memories"
+        assert call_kwargs.kwargs["metadata"]["session_id"] == "sess-flush"
 
     def test_flush_strips_artifacts_from_messages(self, monkeypatch):
         """After flush, the flush prompt and any response should be removed from messages."""
@@ -275,3 +327,72 @@ class TestFlushMemoriesCodexFallback:
         mock_stream.assert_called_once()
         mock_memory.assert_called_once()
         assert mock_memory.call_args.kwargs["content"] == "Codex flush test"
+
+    @pytest.mark.parametrize(
+        "provider,base_url",
+        [
+            # chatgpt.com/backend-api/codex — rejects temperature unconditionally
+            ("openai-codex", "https://chatgpt.com/backend-api/codex"),
+            # Native OpenAI Responses — rejects temperature on gpt-5/o-series reasoning models
+            ("openai", "https://api.openai.com/v1"),
+            # Copilot Responses — rejects temperature on reasoning models
+            ("copilot", "https://api.githubcopilot.com"),
+        ],
+    )
+    def test_codex_fallback_never_sends_temperature(self, monkeypatch, provider, base_url):
+        """Regression for the ``⚠ Auxiliary memory flush failed: HTTP 400:
+        Unsupported parameter: temperature`` error.
+
+        The codex_responses fallback must strip temperature before calling
+        _run_codex_stream — the Responses API does not accept it on any
+        supported backend, matching the transport's behavior."""
+        agent = _make_agent(monkeypatch, api_mode="codex_responses", provider=provider)
+        agent.base_url = base_url
+
+        codex_response = SimpleNamespace(
+            output=[
+                SimpleNamespace(
+                    type="function_call",
+                    call_id="call_1",
+                    name="memory",
+                    arguments=json.dumps({
+                        "action": "add",
+                        "target": "notes",
+                        "content": "no-temp test",
+                    }),
+                ),
+            ],
+            usage=SimpleNamespace(input_tokens=50, output_tokens=10, total_tokens=60),
+            status="completed",
+            model="gpt-5.5",
+        )
+
+        with patch("agent.auxiliary_client.call_llm", side_effect=RuntimeError("no provider")), \
+             patch.object(agent, "_run_codex_stream", return_value=codex_response) as mock_stream, \
+             patch.object(agent, "_build_api_kwargs") as mock_build, \
+             patch("tools.memory_tool.memory_tool", return_value="Saved."):
+            # Simulate a transport that (correctly) never includes temperature,
+            # but also verify we strip any stray temperature the fallback used
+            # to inject before the fix.
+            mock_build.return_value = {
+                "model": "gpt-5.5",
+                "instructions": "test",
+                "input": [],
+                "tools": [],
+                "max_output_tokens": 4096,
+                # Intentionally poison the dict to prove we pop it:
+                "temperature": 0.3,
+            }
+            messages = [
+                {"role": "user", "content": "Hello"},
+                {"role": "assistant", "content": "Hi"},
+                {"role": "user", "content": "Save this"},
+            ]
+            agent.flush_memories(messages)
+
+        mock_stream.assert_called_once()
+        sent_kwargs = mock_stream.call_args.args[0]
+        assert "temperature" not in sent_kwargs, (
+            f"codex_responses fallback must strip temperature before calling "
+            f"_run_codex_stream, got: {sent_kwargs.get('temperature')!r}"
+        )
